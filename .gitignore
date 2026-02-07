@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# pascal compiler generated files
+*.exe
+*.o
+
 # User-specific files
 *.rsuser
 *.suo

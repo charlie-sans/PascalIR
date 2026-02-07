@@ -3,9 +3,10 @@ using System.IO;
 using ObjectIR.Core.Compilers;
 using ObjectIR.Core.Serialization;
 using static ObjectIR.Core.Serialization.ModuleSerializationExtensions;
+
 if (args.Length == 0)
 {
-	Console.WriteLine("Usage: dotnet run --project PascalIR -- <source.pas>");
+	Console.WriteLine("Usage: pair <source.pas>");
 	return;
 }
 
@@ -23,7 +24,7 @@ try
 	var module = compiler.CompileSource(source);
 
 	var irCode = module.Serialize().DumpToIRCode();
-	var outPath = Path.ChangeExtension(inputPath, ".ir.code");
+	var outPath = Path.ChangeExtension(inputPath, ".oir");
 	File.WriteAllText(outPath, irCode);
 	Console.WriteLine($"Wrote IR code: {outPath}");
 }
