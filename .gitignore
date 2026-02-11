@@ -10,6 +10,10 @@
 *.exe
 *.o
 
+console
+filehelper
+main
+
 # User-specific files
 *.rsuser
 *.suo
