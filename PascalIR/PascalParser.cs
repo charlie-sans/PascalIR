@@ -7,12 +7,28 @@ public class PascalParser
 {
     private readonly List<PascalToken> _tokens;
     private int _cur = 0;
+    public List<string> Errors { get; } = new();
 
     public PascalParser(List<PascalToken> tokens) => _tokens = tokens;
 
     public PascalProgram ParseProgram()
     {
         var vars = new List<PascalVarDecl>();
+
+        // optional program header: program Name;
+        if (Match(PascalTokenType.Program))
+        {
+            Consume(PascalTokenType.Identifier, "Expected program name");
+            Match(PascalTokenType.Semicolon);
+        }
+
+        // optional uses clause: uses Unit1, Unit2;
+        if (Match(PascalTokenType.Uses))
+        {
+            // consume identifiers separated by commas until semicolon
+            do { Consume(PascalTokenType.Identifier, "Expected unit name"); } while (Match(PascalTokenType.Comma));
+            Match(PascalTokenType.Semicolon);
+        }
 
         if (Match(PascalTokenType.Var))
         {
@@ -60,6 +76,28 @@ public class PascalParser
 
     private PascalStatement ParseStatement()
     {
+        if (Match(PascalTokenType.If))
+        {
+            var condition = ParseExpression();
+            Consume(PascalTokenType.Then, "Expected 'then'");
+            PascalBlock thenBlock;
+            if (Match(PascalTokenType.Begin)) thenBlock = ParseBlock();
+            else
+            {
+                var s = ParseStatement();
+                thenBlock = new PascalBlock(new[] { s });
+            }
+
+            PascalBlock? elseBlock = null;
+            if (Match(PascalTokenType.Else))
+            {
+                if (Match(PascalTokenType.Begin)) elseBlock = ParseBlock();
+                else { var s2 = ParseStatement(); elseBlock = new PascalBlock(new[] { s2 }); }
+            }
+
+            return new PascalIfStatement(condition, thenBlock, elseBlock);
+        }
+
         if (Check(PascalTokenType.Identifier))
         {
             // could be assignment or procedure call
@@ -95,7 +133,10 @@ public class PascalParser
             bool isDownTo = false;
             if (Match(PascalTokenType.To)) { isDownTo = false; }
             else if (Match(PascalTokenType.Downto)) { isDownTo = true; }
-            else throw new ParseException("Expected 'to' or 'downto'");
+            else
+            {
+                Errors.Add($"Expected 'to' or 'downto' at {Peek().Text}");
+            }
             var to = ParseExpression();
             Consume(PascalTokenType.Do, "Expected 'do'");
             if (Match(PascalTokenType.Begin))
@@ -110,16 +151,132 @@ public class PascalParser
             }
         }
 
+        if (Match(PascalTokenType.While))
+        {
+            var cond = ParseExpression();
+            Consume(PascalTokenType.Do, "Expected 'do'");
+            if (Match(PascalTokenType.Begin))
+            {
+                var body = ParseBlock();
+                return new PascalWhileStatement(cond, body);
+            }
+            else
+            {
+                var stmt = ParseStatement();
+                return new PascalWhileStatement(cond, new PascalBlock(new []{ stmt }));
+            }
+        }
+
         // procedure call without parens (e.g., WriteLn 'x', i; ) is uncommon in modern Pascal; we'll require parens
-        throw new ParseException($"Unsupported statement at token {Peek().Text}");
+        Errors.Add($"Unsupported statement at token {Peek().Text}");
+        // simple sync: advance until semicolon or end of block
+        while (!Check(PascalTokenType.Semicolon) && !Check(PascalTokenType.End) && !IsAtEnd()) Advance();
+        Match(PascalTokenType.Semicolon);
+        return new PascalProcedureCall("_skip", new List<PascalExpression>());
     }
 
     private PascalExpression ParseExpression()
     {
+        return ParseOr();
+    }
+
+    // or -> and ( 'or' and )*
+    private PascalExpression ParseOr()
+    {
+        var left = ParseAnd();
+        while (Match(PascalTokenType.Or))
+        {
+            var right = ParseAnd();
+            left = new PascalBinaryExpression(left, "or", right);
+        }
+        return left;
+    }
+
+    // and -> not ( 'and' not )*
+    private PascalExpression ParseAnd()
+    {
+        var left = ParseNot();
+        while (Match(PascalTokenType.And))
+        {
+            var right = ParseNot();
+            left = new PascalBinaryExpression(left, "and", right);
+        }
+        return left;
+    }
+
+    // not -> 'not' not | comparison
+    private PascalExpression ParseNot()
+    {
+        if (Match(PascalTokenType.Not))
+        {
+            var operand = ParseNot();
+            return new PascalUnaryExpression("not", operand);
+        }
+        if (Match(PascalTokenType.Minus))
+        {
+            var operand = ParseNot();
+            return new PascalUnaryExpression("-", operand);
+        }
+        return ParseComparison();
+    }
+
+    // comparison -> additive (compOp additive)?
+    private PascalExpression ParseComparison()
+    {
+        var left = ParseAdditive();
+        while (Check(PascalTokenType.Equals) || Check(PascalTokenType.NotEqual) || Check(PascalTokenType.Less) || Check(PascalTokenType.Greater) || Check(PascalTokenType.LessOrEqual) || Check(PascalTokenType.GreaterOrEqual))
+        {
+            var tok = Advance();
+            var op = tok.Text;
+            var right = ParseAdditive();
+            left = new PascalBinaryExpression(left, op, right);
+        }
+        return left;
+    }
+
+    // additive -> multiplicative ( ('+'|'-') multiplicative )*
+    private PascalExpression ParseAdditive()
+    {
+        var left = ParseMultiplicative();
+        while (Check(PascalTokenType.Plus) || Check(PascalTokenType.Minus))
+        {
+            var tok = Advance();
+            var op = tok.Text;
+            var right = ParseMultiplicative();
+            left = new PascalBinaryExpression(left, op, right);
+        }
+        return left;
+    }
+
+    // multiplicative -> primary ( ('*'|'/') primary )*
+    private PascalExpression ParseMultiplicative()
+    {
+        var left = ParsePrimary();
+        while (Check(PascalTokenType.Star) || Check(PascalTokenType.Slash))
+        {
+            var tok = Advance();
+            var op = tok.Text;
+            var right = ParsePrimary();
+            left = new PascalBinaryExpression(left, op, right);
+        }
+        return left;
+    }
+
+    private PascalExpression ParsePrimary()
+    {
         if (Match(PascalTokenType.Number)) return new PascalNumberLiteral(int.Parse(Previous().Text));
         if (Match(PascalTokenType.String)) return new PascalStringLiteral(Previous().Text);
+        if (Match(PascalTokenType.True)) return new PascalNumberLiteral(1);
+        if (Match(PascalTokenType.False)) return new PascalNumberLiteral(0);
         if (Match(PascalTokenType.Identifier)) return new PascalIdentifier(Previous().Text);
-        throw new ParseException($"Unexpected expression token: {Peek().Text}");
+        if (Match(PascalTokenType.LeftParen))
+        {
+            var expr = ParseExpression();
+            Consume(PascalTokenType.RightParen, "Expected ')'");
+            return expr;
+        }
+        Errors.Add($"Unexpected expression token: {Peek().Text}");
+        return new PascalNumberLiteral(0);
     }
 
     private bool Match(PascalTokenType t)
@@ -131,7 +288,13 @@ public class PascalParser
     private PascalToken Consume(PascalTokenType t, string msg)
     {
         if (Check(t)) return Advance();
-        throw new ParseException(msg + " at " + Peek().Text);
+        Errors.Add(msg + " at " + Peek().Text);
+        // try to recover by advancing until we find the expected token or a synchronization point
+        while (!Check(t) && !IsAtEnd() && !Check(PascalTokenType.Semicolon) && !Check(PascalTokenType.End) && !Check(PascalTokenType.Begin)) Advance();
+        if (Check(t)) return Advance();
+        // fabricate a token of the expected type at current position
+        var p = Peek();
+        return new PascalToken(t, string.Empty, p.Line, p.Column);
     }
 
     private bool Check(PascalTokenType t)

@@ -11,10 +11,27 @@ public enum PascalTokenType
     Var,
     Begin,
     End,
+    If,
+    Then,
+    Else,
+    While,
+    True,
+    False,
+    And,
+    Or,
+    Not,
+    Program,
+    Uses,
     For,
     To,
     Downto,
     Do,
+    Equals, // =
+    Less, // <
+    Greater, // >
+    LessOrEqual, // <=
+    GreaterOrEqual, // >=
+    NotEqual, // <> or !=
     Semicolon,
     Colon,
     Comma,
@@ -22,6 +39,10 @@ public enum PascalTokenType
     Dot,
     LeftParen,
     RightParen,
+    Plus,
+    Minus,
+    Star,
+    Slash,
     EOF
 }
 
@@ -33,6 +54,7 @@ public class PascalLexer
     private int _pos = 0;
     private int _line = 1;
     private int _col = 1;
+    public List<string> Errors { get; } = new();
 
     public PascalLexer(string src) => _src = src ?? string.Empty;
 
@@ -62,6 +84,24 @@ public class PascalLexer
             {
                 switch (ch)
                 {
+                    case '=': tokens.Add(MakeToken(PascalTokenType.Equals, "=")); Advance(); break;
+                    case '<':
+                        if (Peek() == '=') { tokens.Add(MakeToken(PascalTokenType.LessOrEqual, "<=")); Advance(); Advance(); }
+                        else if (Peek() == '>') { tokens.Add(MakeToken(PascalTokenType.NotEqual, "<>")); Advance(); Advance(); }
+                        else { tokens.Add(MakeToken(PascalTokenType.Less, "<")); Advance(); }
+                        break;
+                    case '!':
+                        if (Peek() == '=') { tokens.Add(MakeToken(PascalTokenType.NotEqual, "!=")); Advance(); Advance(); }
+                        else { Errors.Add($"Unexpected character '{ch}' at {_line}:{_col}"); Advance(); }
+                        break;
+                    case '>':
+                        if (Peek() == '=') { tokens.Add(MakeToken(PascalTokenType.GreaterOrEqual, ">=")); Advance(); Advance(); }
+                        else { tokens.Add(MakeToken(PascalTokenType.Greater, ">")); Advance(); }
+                        break;
+                    case '+': tokens.Add(MakeToken(PascalTokenType.Plus, "+")); Advance(); break;
+                    case '-': tokens.Add(MakeToken(PascalTokenType.Minus, "-")); Advance(); break;
+                    case '*': tokens.Add(MakeToken(PascalTokenType.Star, "*")); Advance(); break;
+                    case '/': tokens.Add(MakeToken(PascalTokenType.Slash, "/")); Advance(); break;
                     case ';': tokens.Add(MakeToken(PascalTokenType.Semicolon, ";")); Advance(); break;
                     case ':':
                         if (Peek() == '=') { tokens.Add(MakeToken(PascalTokenType.Assign, ":=")); Advance(); Advance(); }
@@ -71,8 +111,10 @@ public class PascalLexer
                     case '.': tokens.Add(MakeToken(PascalTokenType.Dot, ".")); Advance(); break;
                     case '(' : tokens.Add(MakeToken(PascalTokenType.LeftParen, "(")); Advance(); break;
                     case ')' : tokens.Add(MakeToken(PascalTokenType.RightParen, ")")); Advance(); break;
-                    default:
-                        throw new ParseException($"Unexpected character '{ch}' at {_line}:{_col}");
+                        default:
+                            Errors.Add($"Unexpected character '{ch}' at {_line}:{_col}");
+                            Advance();
+                            break;
                 }
             }
         }
@@ -125,15 +167,26 @@ public class PascalLexer
 
         var text = _src[start.._pos];
         var lower = text.ToLowerInvariant();
-        var type = lower switch
+            var type = lower switch
         {
             "var" => PascalTokenType.Var,
             "begin" => PascalTokenType.Begin,
             "end" => PascalTokenType.End,
+            "if" => PascalTokenType.If,
+            "then" => PascalTokenType.Then,
+            "else" => PascalTokenType.Else,
+                "while" => PascalTokenType.While,
+                "true" => PascalTokenType.True,
+                "false" => PascalTokenType.False,
+                "and" => PascalTokenType.And,
+                "or" => PascalTokenType.Or,
+                "not" => PascalTokenType.Not,
             "for" => PascalTokenType.For,
             "to" => PascalTokenType.To,
             "downto" => PascalTokenType.Downto,
             "do" => PascalTokenType.Do,
+            "program" => PascalTokenType.Program,
+            "uses" => PascalTokenType.Uses,
             _ => PascalTokenType.Identifier
         };
 
@@ -155,9 +208,14 @@ public class PascalLexer
         Advance();
         int start = _pos;
         while (_pos < _src.Length && _src[_pos] != '\'') { _pos++; _col++; }
-        if (_pos >= _src.Length) throw new ParseException("Unterminated string");
+        if (_pos >= _src.Length)
+        {
+            Errors.Add($"Unterminated string at {_line}:{colStart}");
+            var textUnterm = _src[start.._pos];
+            return new PascalToken(PascalTokenType.String, textUnterm, _line, colStart);
+        }
         var text = _src[start.._pos];
-        Advance(); // skip closing '
+        Advance(); // skip closing '\''
         return new PascalToken(PascalTokenType.String, text, _line, colStart);
     }
 

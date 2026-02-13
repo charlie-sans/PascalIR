@@ -3,16 +3,25 @@ namespace ObjectIR.Core.Compilers;
 using ObjectIR.Core.Builder;
 using ObjectIR.Core.IR;
 using ObjectIR.Core.Serialization;
+using System;
 using System.Collections.Generic;
 
 public class PascalCompiler
 {
     public Module CompileSource(string source)
     {
-        var lexer = new PascalLexer(source);
+        var lexer = new PascalLexer(source ?? string.Empty);
         var tokens = lexer.Tokenize();
+        if (lexer.Errors.Count > 0)
+        {
+            throw new Exception(string.Join("\n", lexer.Errors));
+        }
         var parser = new PascalParser(tokens);
         var program = parser.ParseProgram();
+        if (parser.Errors.Count > 0)
+        {
+            throw new Exception(string.Join("\n", parser.Errors));
+        }
 
         var builder = new IRBuilder("PascalProgram");
         var classB = builder.Class("Program");
@@ -53,6 +62,52 @@ public class PascalCompiler
             case PascalProcedureCall p:
                 CompileProcedureCall(p, ib);
                 break;
+            case PascalIfStatement i:
+                    // if we have a simple binary equality condition, evaluate it to a boolean on the stack
+                    if (i.Condition is PascalBinaryExpression be && be.Operator == "=")
+                    {
+                        // compile the binary expression which emits the comparison result (Ceq) onto the stack
+                        CompileExpression(be, ib);
+                        ib.If(Condition.Stack(), thenBuilder =>
+                        {
+                            foreach (var s in i.ThenBlock.Statements)
+                                CompileStatement(s, thenBuilder);
+                        }, elseBuilder =>
+                        {
+                            if (i.ElseBlock != null)
+                            {
+                                foreach (var s in i.ElseBlock.Statements)
+                                    CompileStatement(s, elseBuilder);
+                            }
+                        });
+                    }
+                else
+                {
+                    // fallback: evaluate expr to boolean on stack and use Stack condition
+                    CompileExpression(i.Condition, ib);
+                    ib.If(Condition.Stack(), thenBuilder =>
+                    {
+                        foreach (var s in i.ThenBlock.Statements)
+                            CompileStatement(s, thenBuilder);
+                    }, elseBuilder =>
+                    {
+                        if (i.ElseBlock != null)
+                        {
+                            foreach (var s in i.ElseBlock.Statements)
+                                CompileStatement(s, elseBuilder);
+                        }
+                    });
+                }
+                break;
+            case PascalWhileStatement w:
+                // emit condition evaluation (will be used by the While condition)
+                CompileExpression(w.Condition, ib);
+                ib.While(Condition.Stack(), loop =>
+                {
+                    foreach (var s in w.Body.Statements)
+                        CompileStatement(s, loop);
+                });
+                break;
             case PascalForStatement f:
                 CompileForUnrolled(f, ib);
                 break;
@@ -71,6 +126,88 @@ public class PascalCompiler
                 break;
             case PascalIdentifier id:
                 ib.Ldloc(id.Name);
+                break;
+            case PascalBinaryExpression be:
+                var op = be.Operator.ToLowerInvariant();
+                if (op == "and")
+                {
+                    // short-circuit AND: evaluate left, if true evaluate right, else push 0
+                    CompileExpression(be.Left, ib);
+                    ib.If(Condition.Stack(), thenBuilder =>
+                    {
+                        CompileExpression(be.Right, thenBuilder);
+                    }, elseBuilder =>
+                    {
+                        elseBuilder.LdcI4(0);
+                    });
+                }
+                else if (op == "or")
+                {
+                    // short-circuit OR: evaluate left, if true push 1, else evaluate right
+                    CompileExpression(be.Left, ib);
+                    ib.If(Condition.Stack(), thenBuilder =>
+                    {
+                        thenBuilder.LdcI4(1);
+                    }, elseBuilder =>
+                    {
+                        CompileExpression(be.Right, elseBuilder);
+                    });
+                }
+                else
+                {
+                    // arithmetic or relational/comparison
+                    if (op == "+" || op == "-" || op == "*" || op == "/")
+                    {
+                        CompileExpression(be.Left, ib);
+                        CompileExpression(be.Right, ib);
+                        switch (op)
+                        {
+                            case "+": ib.Add(); break;
+                            case "-": ib.Sub(); break;
+                            case "*": ib.Mul(); break;
+                            case "/": ib.Div(); break;
+                        }
+                    }
+                    else
+                    {
+                        // relational/comparison
+                        CompileExpression(be.Left, ib);
+                        CompileExpression(be.Right, ib);
+                        switch (op)
+                        {
+                            case "=": ib.Ceq(); break;
+                            case "<>":
+                            case "!=":
+                                ib.Ceq(); ib.LdcI4(0); ib.Ceq();
+                                break;
+                            case "<": ib.Clt(); break;
+                            case ">": ib.Cgt(); break;
+                            case "<=": ib.Cgt(); ib.LdcI4(0); ib.Ceq(); break;
+                            case ">=": ib.Clt(); ib.LdcI4(0); ib.Ceq(); break;
+                            default: throw new Exception($"Unsupported binary operator {be.Operator}");
+                        }
+                    }
+                }
+                break;
+            case PascalUnaryExpression ue:
+                var uop = ue.Operator.ToLowerInvariant();
+                if (uop == "not")
+                {
+                    CompileExpression(ue.Operand, ib);
+                    ib.LdcI4(0);
+                    ib.Ceq();
+                }
+                else if (uop == "-")
+                {
+                    // unary minus: emit 0 <operand> sub -> 0 - operand
+                    ib.LdcI4(0);
+                    CompileExpression(ue.Operand, ib);
+                    ib.Sub();
+                }
+                else
+                {
+                    throw new Exception($"Unsupported unary operator {ue.Operator}");
+                }
                 break;
         }
     }

@@ -82,6 +82,58 @@ public class PascalProcedureCall : PascalStatement
     }
 }
 
+public class PascalIfStatement : PascalStatement
+{
+    public PascalExpression Condition { get; }
+    public PascalBlock ThenBlock { get; }
+    public PascalBlock? ElseBlock { get; }
+
+    public PascalIfStatement(PascalExpression condition, PascalBlock thenBlock, PascalBlock? elseBlock)
+    {
+        Condition = condition;
+        ThenBlock = thenBlock;
+        ElseBlock = elseBlock;
+    }
+}
+
+public class PascalWhileStatement : PascalStatement
+{
+    public PascalExpression Condition { get; }
+    public PascalBlock Body { get; }
+
+    public PascalWhileStatement(PascalExpression condition, PascalBlock body)
+    {
+        Condition = condition;
+        Body = body;
+    }
+}
+
+public class PascalBinaryExpression : PascalExpression
+{
+    public PascalExpression Left { get; }
+    public string Operator { get; }
+    public PascalExpression Right { get; }
+
+    public PascalBinaryExpression(PascalExpression left, string op, PascalExpression right)
+    {
+        Left = left;
+        Operator = op;
+        Right = right;
+    }
+}
+
+public class PascalUnaryExpression : PascalExpression
+{
+    public string Operator { get; }
+    public PascalExpression Operand { get; }
+
+    public PascalUnaryExpression(string op, PascalExpression operand)
+    {
+        Operator = op;
+        Operand = operand;
+    }
+}
+
 public abstract class PascalExpression : PascalNode { }
 
 public class PascalNumberLiteral : PascalExpression
