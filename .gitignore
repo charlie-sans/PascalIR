@@ -488,3 +488,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+linux-arm64.zip
+linux-x64.zip
+osx-arm64.zip
+osx-x64.zip
+win-x64.zip
