@@ -1,0 +1,19 @@
+module PascalProgram version 1.0.0
+// Program class
+class Program {
+    method Main() -> void {
+        local i: int32
+
+        ldc.i4 1
+        stloc i
+        while (i <= 32755) {
+            ldloc i
+            call System.Console.WriteLine(System.string) -> void
+            ldloc i
+            ldc.i4 1
+            add
+            stloc i
+        }
+        ret
+    }
+}

@@ -2,9 +2,9 @@ module PascalProgram version 1.0.0
 // Program class
 class Program {
     method Main() -> void {
-        local input: int32
-        local cmd: int32
-        local arg: int32
+        local input: System.string
+        local cmd: System.string
+        local arg: System.string
         local i: int32
 
         ldstr "Hello, World!"
